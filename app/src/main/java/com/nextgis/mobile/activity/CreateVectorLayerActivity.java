@@ -3,7 +3,7 @@
  * Purpose:  Mobile GIS for Android.
  * Author:   Stanislav Petriakov, becomeglory@gmail.com
  * *****************************************************************************
- * Copyright (c) 2015 NextGIS, info@nextgis.com
+ * Copyright (c) 2015-2016 NextGIS, info@nextgis.com
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -21,16 +21,16 @@
 
 package com.nextgis.mobile.activity;
 
-import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
-import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -44,7 +44,6 @@ import com.nextgis.maplib.map.VectorLayer;
 import com.nextgis.maplib.util.GeoConstants;
 import com.nextgis.maplib.util.LayerUtil;
 import com.nextgis.maplibui.activity.NGActivity;
-import com.nextgis.maplibui.util.ControlHelper;
 import com.nextgis.mobile.MainApplication;
 import com.nextgis.mobile.R;
 import com.nextgis.mobile.dialog.NewFieldDialog;
@@ -57,7 +56,6 @@ public class CreateVectorLayerActivity extends NGActivity implements View.OnClic
     private EditText mEtLayerName;
     private Spinner mSpLayerType;
     private FieldAdapter mFieldAdapter;
-    private int mColor;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,17 +63,8 @@ public class CreateVectorLayerActivity extends NGActivity implements View.OnClic
         setContentView(R.layout.activity_new_layer);
         setToolbar(R.id.main_toolbar);
 
-        findViewById(R.id.fab_ok).setOnClickListener(this);
-        ImageButton ibNewField = (ImageButton) findViewById(R.id.ib_add_field);
-        ibNewField.setOnClickListener(this);
+        findViewById(R.id.ib_add_field).setOnClickListener(this);
 
-        int[] attrs = new int[] { com.nextgis.maplibui.R.attr.colorAccent };
-        TypedArray ta = obtainStyledAttributes(com.nextgis.maplibui.R.style.AppTheme, attrs);
-        mColor = ta.getColor(0, getResources().getColor(com.nextgis.maplibui.R.color.accent));
-        ta.recycle();
-        
-        ControlHelper.tintDrawable(ibNewField.getDrawable(), mColor);
-        
         mEtLayerName = (EditText) findViewById(R.id.et_layer_name);
         mSpLayerType = (Spinner) findViewById(R.id.sp_layer_type);
         ListView lvFields = (ListView) findViewById(R.id.lv_fields);
@@ -85,9 +74,17 @@ public class CreateVectorLayerActivity extends NGActivity implements View.OnClic
     }
 
     @Override
-    public void onClick(View v) {
-        switch (v.getId()) {
-            case R.id.fab_ok:
+    public boolean onCreateOptionsMenu(Menu menu)
+    {
+        getMenuInflater().inflate(R.menu.edit_attributes, menu);
+        menu.findItem(R.id.menu_settings).setVisible(false);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.menu_apply:
                 int info = R.string.error_layer_create;
 
                 if (TextUtils.isEmpty(mEtLayerName.getText().toString().trim()))
@@ -100,7 +97,15 @@ public class CreateVectorLayerActivity extends NGActivity implements View.OnClic
                 }
 
                 Toast.makeText(this, info, Toast.LENGTH_SHORT).show();
-                break;
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+    }
+
+    @Override
+    public void onClick(View v) {
+        switch (v.getId()) {
             case R.id.ib_add_field:
                 addNewField();
                 break;
@@ -126,13 +131,15 @@ public class CreateVectorLayerActivity extends NGActivity implements View.OnClic
     }
 
     @Override
-    public void OnFieldChosen(String name, int type) {
-        if (TextUtils.isEmpty(name))
+    public void OnFieldChosen(String alias, int type) {
+        String name = System.currentTimeMillis() + "";
+        name = "field_" + name.substring(8);
+        if (TextUtils.isEmpty(alias))
             Toast.makeText(this, R.string.empty_name, Toast.LENGTH_SHORT).show();
-        else if (mFieldAdapter.containsField(name))
+        else if (mFieldAdapter.containsField(alias))
             Toast.makeText(this, R.string.same_field_name, Toast.LENGTH_SHORT).show();
         else
-            mFieldAdapter.addField(new Field(type, name, name));
+            mFieldAdapter.addField(new Field(type, name, alias));
     }
 
     private boolean createNewLayer() {
@@ -142,8 +149,7 @@ public class CreateVectorLayerActivity extends NGActivity implements View.OnClic
         if (fields.size() == 0)
             fields.add(new Field(GeoConstants.FTString, "description", getString(R.string.default_field_name)));
 
-        VectorLayer layer = app.createEmptyVectorLayer(mEtLayerName.getText().toString().trim(),
-                null, geomType, fields);
+        VectorLayer layer = app.createEmptyVectorLayer(mEtLayerName.getText().toString().trim(), null, geomType, fields);
 
         SimpleFeatureRenderer sfr = (SimpleFeatureRenderer) layer.getRenderer();
         if (null != sfr) {
@@ -161,21 +167,22 @@ public class CreateVectorLayerActivity extends NGActivity implements View.OnClic
 
     protected class FieldAdapter extends BaseAdapter {
         private List<Field> mFields;
-        private List<String> mFieldNames;
 
         public FieldAdapter() {
             mFields = new ArrayList<>();
-            mFieldNames = new ArrayList<>();
         }
 
         public void addField(Field field) {
             mFields.add(field);
-            mFieldNames.add(field.getName().toLowerCase());
             notifyDataSetChanged();
         }
 
         public boolean containsField(String fieldName) {
-            return mFieldNames.contains(fieldName.toLowerCase());
+            for (Field field : mFields)
+                if (field.getAlias().equalsIgnoreCase(fieldName))
+                    return true;
+
+            return false;
         }
 
         public List<Field> getFields() {
@@ -208,15 +215,12 @@ public class CreateVectorLayerActivity extends NGActivity implements View.OnClic
             final Field field = mFields.get(position);
             TextView fieldName = (TextView) view.findViewById(R.id.tv_field_name);
             TextView fieldType = (TextView) view.findViewById(R.id.tv_field_type);
-            fieldName.setText(field.getName());
+            fieldName.setText(field.getAlias());
             fieldType.setText(LayerUtil.typeToString(CreateVectorLayerActivity.this, field.getType()));
 
-            ImageButton removeField = (ImageButton) view.findViewById(R.id.ib_remove_field);
-            ControlHelper.tintDrawable(removeField.getDrawable(), mColor);
-            removeField.setOnClickListener(new View.OnClickListener() {
+            view.findViewById(R.id.ib_remove_field).setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    mFieldNames.remove(field.getName());
                     mFields.remove(field);
                     notifyDataSetChanged();
                 }

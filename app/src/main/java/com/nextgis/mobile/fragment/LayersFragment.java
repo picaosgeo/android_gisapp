@@ -28,6 +28,7 @@ import android.accounts.AccountManager;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
@@ -38,7 +39,7 @@ import android.support.v4.app.Fragment;
 import android.support.v4.view.GravityCompat;
 import android.support.v4.widget.DrawerLayout;
 import android.support.v7.app.ActionBarDrawerToggle;
-import android.support.v7.internal.widget.ThemeUtils;
+import android.support.v7.app.AlertDialog;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.Display;
@@ -112,8 +113,7 @@ public class LayersFragment
 
         LinearLayout linearLayout = (LinearLayout) view.findViewById(R.id.action_space);
         if (null != linearLayout) {
-            linearLayout.setBackgroundColor(ThemeUtils.getThemeAttrColor(view.getContext(),
-                                                                         R.attr.colorPrimary));
+            linearLayout.setBackgroundColor(ControlHelper.getColor(view.getContext(), R.attr.colorPrimary));
         }
 
         mSyncButton = (ImageButton) view.findViewById(R.id.sync);
@@ -234,11 +234,12 @@ public class LayersFragment
     public void setUp(
             int fragmentId,
             DrawerLayout drawerLayout,
-            MapDrawable map)
+            final MapDrawable map)
     {
-        mFragmentContainerView = getActivity().findViewById(fragmentId);
+        MainActivity activity = (MainActivity) getActivity();
+        mFragmentContainerView = activity.findViewById(fragmentId);
 
-        Display display = getActivity().getWindowManager().getDefaultDisplay();
+        Display display = activity.getWindowManager().getDefaultDisplay();
 
         int displayWidth;
         if (android.os.Build.VERSION.SDK_INT >= 13) {
@@ -255,16 +256,45 @@ public class LayersFragment
         }
         mFragmentContainerView.setLayoutParams(params);
 
-        mListAdapter = new LayersListAdapter(getActivity(), map);
+        final MapFragment mapFragment = activity.getMapFragment();
+        mListAdapter = new LayersListAdapter(activity, map);
         mListAdapter.setDrawer(drawerLayout);
+        mListAdapter.setOnPencilClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!mapFragment.hasEdits()) {
+                    mapFragment.setMode(MapFragment.MODE_NORMAL);
+                    return;
+                }
+
+                AlertDialog builder = new AlertDialog.Builder(getContext())
+                        .setTitle(R.string.save)
+                        .setMessage(R.string.has_edits)
+                        .setPositiveButton(R.string.save, new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                mapFragment.saveEdits();
+                                mapFragment.setMode(MapFragment.MODE_NORMAL);
+                            }
+                        })
+                        .setNegativeButton(R.string.discard, new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                mapFragment.cancelEdits();
+                                mapFragment.setMode(MapFragment.MODE_NORMAL);
+                            }
+                        }).create();
+                builder.show();
+            }
+        });
         mListAdapter.setOnLayerEditListener(new LayersListAdapter.onEdit() {
             @Override
             public void onLayerEdit(ILayer layer) {
-                ((MainActivity) getActivity()).getMapFragment().onFinishChooseLayerDialog(MapFragment.EDIT_LAYER, layer);
+                mapFragment.onFinishChooseLayerDialog(MapFragment.EDIT_LAYER, layer);
                 toggle();
             }
         });
-        ((MainActivity) getActivity()).getMapFragment().setOnModeChangeListener(new MapFragment.onModeChange() {
+        mapFragment.setOnModeChangeListener(new MapFragment.onModeChange() {
             @Override
             public void onModeChangeListener() {
                 mListAdapter.notifyDataSetChanged();

@@ -23,15 +23,19 @@
 
 package com.nextgis.mobile.fragment;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
 import android.database.Cursor;
+import android.graphics.Color;
 import android.location.Location;
+import android.net.Uri;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
+import android.text.Html;
 import android.util.DisplayMetrics;
 import android.view.Display;
 import android.view.LayoutInflater;
@@ -39,9 +43,11 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.TextView;
+import android.widget.Toast;
 
 import com.keenfin.easypicker.PhotoPicker;
 import com.nextgis.maplib.api.IGISApplication;
@@ -76,6 +82,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.nextgis.maplib.util.GeoConstants.CRS_WEB_MERCATOR;
 import static com.nextgis.maplib.util.GeoConstants.CRS_WGS84;
@@ -93,6 +101,11 @@ import static com.nextgis.maplib.util.GeoConstants.GTPolygon;
 public class AttributesFragment
         extends Fragment
 {
+    protected static final String IP_ADDRESS = "((25[0-5]|2[0-4][0-9]|[0-1][0-9]{2}|[1-9][0-9]|[1-9])\\.(25[0-5]|2[0-4]"
+            + "[0-9]|[0-1][0-9]{2}|[1-9][0-9]|[1-9]|0)\\.(25[0-5]|2[0-4][0-9]|[0-1]"
+            + "[0-9]{2}|[1-9][0-9]|[1-9]|0)\\.(25[0-5]|2[0-4][0-9]|[0-1][0-9]{2}"
+            + "|[1-9][0-9]|[0-9]))";
+    protected static final String URL_PATTERN = "^(?i)(https?://)?(([\\da-z\\.-]+)\\.([a-z\\.]{2,6})|" + IP_ADDRESS + ")([\\/\\w\\,\\s \\.-]*)*\\/?$";
     protected static final String KEY_ITEM_ID       = "item_id";
     protected static final String KEY_ITEM_POSITION = "item_pos";
 
@@ -114,8 +127,11 @@ public class AttributesFragment
             ViewGroup container,
             Bundle savedInstanceState)
     {
-        if (mLayer == null)
+        if (mLayer == null) {
             getActivity().getSupportFragmentManager().popBackStack();
+            Toast.makeText(getContext(), R.string.error_layer_not_inited, Toast.LENGTH_SHORT).show();
+            return null;
+        }
 
         getActivity().setTitle(mLayer.getName());
         setHasOptionsMenu(!isTablet());
@@ -139,8 +155,6 @@ public class AttributesFragment
         }
 
         mAttributes = (LinearLayout) view.findViewById(R.id.ll_attributes);
-        setAttributes();
-
         return view;
     }
 
@@ -200,22 +214,71 @@ public class AttributesFragment
 
     private void setAttributes()
     {
-        if (mAttributes == null) {
+        if (mAttributes == null)
             return;
-        }
 
         mAttributes.removeAllViews();
+
+        int[] attrs = new int[] {android.R.attr.textColorPrimary};
+        TypedArray ta = getContext().obtainStyledAttributes(attrs);
+        String textColor = Integer.toHexString(ta.getColor(0, Color.BLACK)).substring(2);
+        ta.recycle();
+
+        final WebView webView = new WebView(getContext());
+        webView.setVerticalScrollBarEnabled(false);
+        String data = "<!DOCTYPE html><html><head><meta charset='utf-8'><style>body{word-wrap:break-word;color:#" + textColor + ";font-family:Roboto Light,sans-serif;font-weight:300;line-height:1.15em}.flat-table{table-layout:fixed;margin-bottom:20px;width:100%;border-collapse:collapse;border:none;box-shadow:inset 1px -1px #ccc,inset -1px 1px #ccc}.flat-table td{box-shadow:inset -1px -1px #ccc,inset -1px -1px #ccc;padding:.5em}.flat-table tr{-webkit-transition:background .3s,box-shadow .3s;-moz-transition:background .3s,box-shadow .3s;transition:background .3s,box-shadow .3s}</style></head><body><table class='flat-table'><tbody>";
 
         FragmentActivity activity = getActivity();
         if (null == activity)
             return;
 
         ((MainActivity) activity).setSubtitle(String.format(getString(R.string.features_count_attributes), mItemPosition + 1, mFeatureIDs.size()));
+        checkNearbyItems();
 
+        try {
+            data = parseAttributes(data);
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
+
+        data += "</tbody></table></body></html>";
+        webView.loadDataWithBaseURL(null, data, "text/html", "UTF-8", null);
+        mAttributes.addView(webView);
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                webView.setBackgroundColor(Color.TRANSPARENT);
+            }
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                view.getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                return true;
+            }
+        });
+
+        IGISApplication app = (GISApplication) getActivity().getApplication();
+        final Map<String, Integer> mAttaches = new HashMap<>();
+        PhotoGallery.getAttaches(app, mLayer, mItemId, mAttaches, false);
+
+        if (mAttaches.size() > 0) {
+            final PhotoPicker gallery = new PhotoPicker(getActivity(), true);
+            int px = ControlHelper.dpToPx(16, getResources());
+            gallery.setPadding(px, 0, px, 0);
+            gallery.post(new Runnable() {
+                @Override
+                public void run() {
+                    gallery.restoreImages(new ArrayList<>(mAttaches.keySet()));
+                }
+            });
+
+            mAttributes.addView(gallery);
+        }
+    }
+
+    private String parseAttributes(String data) throws RuntimeException {
         String selection = Constants.FIELD_ID + " = ?";
         Cursor attributes = mLayer.query(null, selection, new String[]{mItemId + ""}, null, null);
         if (null == attributes || attributes.getCount() == 0)
-            return;
+            return data;
 
         if (attributes.moveToFirst()) {
             for (int i = 0; i < attributes.getColumnCount(); i++) {
@@ -230,7 +293,7 @@ public class AttributesFragment
                         case GTPoint:
                             try {
                                 GeoPoint pt = (GeoPoint) GeoGeometryFactory.fromBlob(attributes.getBlob(i));
-                                addRow(getString(R.string.coordinates), formatCoordinates(pt));
+                                data += getRow(getString(R.string.coordinates), formatCoordinates(pt));
                             } catch (IOException | ClassNotFoundException e) {
                                 e.printStackTrace();
                             }
@@ -238,7 +301,7 @@ public class AttributesFragment
                         case GTMultiPoint:
                             try {
                                 GeoMultiPoint mpt = (GeoMultiPoint) GeoGeometryFactory.fromBlob(attributes.getBlob(i));
-                                addRow(getString(R.string.center), formatCoordinates(mpt.getEnvelope().getCenter()));
+                                data += getRow(getString(R.string.center), formatCoordinates(mpt.getEnvelope().getCenter()));
                             } catch (IOException | ClassNotFoundException e) {
                                 e.printStackTrace();
                             }
@@ -246,7 +309,7 @@ public class AttributesFragment
                         case GTLineString:
                             try {
                                 GeoLineString line = (GeoLineString) GeoGeometryFactory.fromBlob(attributes.getBlob(i));
-                                addRow(getString(R.string.length), LocationUtil.formatLength(getContext(), line.getLength(), 3));
+                                data += getRow(getString(R.string.length), LocationUtil.formatLength(getContext(), line.getLength(), 3));
                             } catch (IOException | ClassNotFoundException e) {
                                 e.printStackTrace();
                             }
@@ -254,7 +317,7 @@ public class AttributesFragment
                         case GTMultiLineString:
                             try {
                                 GeoMultiLineString multiline = (GeoMultiLineString) GeoGeometryFactory.fromBlob(attributes.getBlob(i));
-                                addRow(getString(R.string.length), LocationUtil.formatLength(getContext(), multiline.getLength(), 3));
+                                data += getRow(getString(R.string.length), LocationUtil.formatLength(getContext(), multiline.getLength(), 3));
                             } catch (IOException | ClassNotFoundException e) {
                                 e.printStackTrace();
                             }
@@ -262,8 +325,8 @@ public class AttributesFragment
                         case GTPolygon:
                             try {
                                 GeoPolygon polygon = (GeoPolygon) GeoGeometryFactory.fromBlob(attributes.getBlob(i));
-                                addRow(getString(R.string.perimeter), LocationUtil.formatLength(getContext(), polygon.getPerimeter(), 3));
-                                addRow(getString(R.string.area), LocationUtil.formatArea(getContext(), polygon.getArea()));
+                                data += getRow(getString(R.string.perimeter), LocationUtil.formatLength(getContext(), polygon.getPerimeter(), 3));
+                                data += getRow(getString(R.string.area), LocationUtil.formatArea(getContext(), polygon.getArea()));
                             } catch (IOException | ClassNotFoundException e) {
                                 e.printStackTrace();
                             }
@@ -271,8 +334,8 @@ public class AttributesFragment
                         case GTMultiPolygon:
                             try {
                                 GeoMultiPolygon polygon = (GeoMultiPolygon) GeoGeometryFactory.fromBlob(attributes.getBlob(i));
-                                addRow(getString(R.string.perimeter), LocationUtil.formatLength(getContext(), polygon.getPerimeter(), 3));
-                                addRow(getString(R.string.area), LocationUtil.formatArea(getContext(), polygon.getArea()));
+                                data += getRow(getString(R.string.perimeter), LocationUtil.formatLength(getContext(), polygon.getPerimeter(), 3));
+                                data += getRow(getString(R.string.area), LocationUtil.formatArea(getContext(), polygon.getArea()));
                             } catch (IOException | ClassNotFoundException e) {
                                 e.printStackTrace();
                             }
@@ -300,56 +363,38 @@ public class AttributesFragment
                         text = formatDateTime(attributes.getLong(i), fieldType);
                         break;
                     default:
-                        text = attributes.getString(i);
+                        text = toString(attributes.getString(i));
+                        Pattern pattern = Pattern.compile(URL_PATTERN);
+                        Matcher match = pattern.matcher(text);
+                        while (match.matches()) {
+                            String url = text.substring(match.start(), match.end());
+                            text = text.replaceFirst(URL_PATTERN, "<a href = '" + url + "'>" + url + "</a>");
+                            match = pattern.matcher(text.substring(match.start() + url.length() * 2 + 17));
+                        }
                         break;
                 }
 
-            addRow(column, text);
-            }
+                if (field != null && column.equals(Constants.FIELD_ID))
+                    field.setAlias(getString(R.string.id));
 
-            IGISApplication app = (GISApplication) getActivity().getApplication();
-            final Map<String, Integer> mAttaches = new HashMap<>();
-        PhotoGallery.getAttaches(app, mLayer, mItemId, mAttaches);
-
-            if (mAttaches.size() > 0) {
-                final PhotoPicker gallery = new PhotoPicker(getActivity(), true);
-                gallery.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        gallery.restoreImages(new ArrayList<>(mAttaches.keySet()));
-                    }
-                });
-
-                mAttributes.addView(gallery);
+                data += getRow(field != null ? field.getAlias() : "", text);
             }
         }
 
         attributes.close();
-        checkNearbyItems();
+        return data;
     }
 
 
-    protected void addRow(String column, String text) {
-        LinearLayout row = new LinearLayout(getActivity());
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+    protected String getRow(String column, String text) {
+        column = column == null ? "" : toString(column);
+        text = text == null ? "" : text;
+        return String.format("<tr><td>%s</td><td>%s</td></tr><tr>", column, text);
+    }
 
-        TextView columnName = new TextView(getActivity());
-        columnName.setLayoutParams(params);
-        columnName.setText(column);
-        TextView data = new TextView(getActivity());
-        data.setLayoutParams(params);
 
-        try {
-            data.setText(text);
-        } catch (Exception ignored) {
-
-        }
-
-        row.addView(columnName);
-        row.addView(data);
-        mAttributes.addView(row);
+    protected String toString(String text) {
+        return text == null ? "" : Html.fromHtml(text).toString();
     }
 
 
@@ -366,7 +411,7 @@ public class AttributesFragment
         String lon = getString(com.nextgis.maplibui.R.string.longitude_caption_short) + ": " +
                 LocationUtil.formatLongitude(pt.getX(), format, fraction, getResources());
 
-        return lat + "\r\n" + lon;
+        return lat + "<br \\>" + lon;
     }
 
 
@@ -454,8 +499,6 @@ public class AttributesFragment
             mItemId = savedInstanceState.getLong(KEY_ITEM_ID);
             mItemPosition = savedInstanceState.getInt(KEY_ITEM_POSITION);
         }
-
-        setAttributes();
     }
 
 

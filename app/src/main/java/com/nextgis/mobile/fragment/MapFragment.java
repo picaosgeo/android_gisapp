@@ -24,6 +24,7 @@
 package com.nextgis.mobile.fragment;
 
 
+import android.app.Activity;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
@@ -36,14 +37,14 @@ import android.location.Location;
 import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Parcelable;
 import android.os.Vibrator;
 import android.preference.PreferenceManager;
-import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.design.widget.Snackbar;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentManager;
 import android.support.v4.app.FragmentTransaction;
+import android.support.v4.content.ContextCompat;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
@@ -60,7 +61,6 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.cocosw.undobar.UndoBarController;
 import com.getbase.floatingactionbutton.FloatingActionButton;
 import com.nextgis.maplib.api.GpsEventListener;
 import com.nextgis.maplib.api.ILayer;
@@ -105,17 +105,15 @@ import com.nextgis.mobile.activity.MainActivity;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 
 import static com.nextgis.maplib.util.Constants.FIELD_GEOM;
 import static com.nextgis.maplib.util.Constants.FIELD_ID;
 import static com.nextgis.maplib.util.Constants.NOT_FOUND;
-import static com.nextgis.mobile.util.SettingsConstants.KEY_PREF_SCROLL_X;
-import static com.nextgis.mobile.util.SettingsConstants.KEY_PREF_SCROLL_Y;
 import static com.nextgis.mobile.util.SettingsConstants.KEY_PREF_SHOW_COMPASS;
 import static com.nextgis.mobile.util.SettingsConstants.KEY_PREF_SHOW_MEASURING;
 import static com.nextgis.mobile.util.SettingsConstants.KEY_PREF_SHOW_SCALE_RULER;
 import static com.nextgis.mobile.util.SettingsConstants.KEY_PREF_SHOW_ZOOM_CONTROLS;
-import static com.nextgis.mobile.util.SettingsConstants.KEY_PREF_ZOOM_LEVEL;
 
 /**
  * Main map fragment
@@ -281,7 +279,7 @@ public class MapFragment
     public void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
-        if (mMode == MODE_INFO)
+        if (mMode == MODE_INFO || resultCode != Activity.RESULT_OK)
             return;
 
         if (requestCode == IVectorLayerUI.MODIFY_REQUEST && data != null) {
@@ -289,7 +287,8 @@ public class MapFragment
 
             if (id != NOT_FOUND) {
                 mEditLayerOverlay.setSelectedFeature(id);
-                mSelectedLayer.showFeature(id);
+                if (mSelectedLayer != null)
+                    mSelectedLayer.showFeature(id);
                 setMode(MODE_SELECT_ACTION);
             }
         } else if (mEditLayerOverlay.getSelectedFeatureGeometry() != null)
@@ -299,7 +298,7 @@ public class MapFragment
 
     protected boolean isGeometryValid(GeoGeometry geometry) {
         if (!hasMinimumPoints(geometry)) {
-            Toast.makeText(getContext(), R.string.geometry_no_points, Toast.LENGTH_SHORT).show();
+            Toast.makeText(getContext(), R.string.not_enough_points, Toast.LENGTH_SHORT).show();
             return false;
         }
 
@@ -380,6 +379,11 @@ public class MapFragment
     }
 
 
+    public boolean hasEdits() {
+        return mEditLayerOverlay != null && mEditLayerOverlay.hasEdits();
+    }
+
+
     public void cancelEdits() {
 //        if (mEditLayerOverlay.hasEdits()) TODO prompt dialog
 //            return;
@@ -426,9 +430,15 @@ public class MapFragment
                 if (mStatusPanelMode != 0)
                     mStatusPanel.setVisibility(View.VISIBLE);
 
+                mEditLayerOverlay.showAllFeatures();
                 mEditLayerOverlay.setMode(EditLayerOverlay.MODE_NONE);
                 break;
             case MODE_EDIT:
+                if (mSelectedLayer == null) {
+                    setMode(MODE_NORMAL);
+                    return;
+                }
+
                 mSelectedLayer.setLocked(true);
                 mActivity.showEditToolbar();
                 mEditLayerOverlay.setMode(EditLayerOverlay.MODE_EDIT);
@@ -446,6 +456,11 @@ public class MapFragment
                 mEditLayerOverlay.setMode(EditLayerOverlay.MODE_EDIT_BY_WALK);
                 break;
             case MODE_SELECT_ACTION:
+                if (mSelectedLayer == null) {
+                    setMode(MODE_NORMAL);
+                    return;
+                }
+
                 mSelectedLayer.setLocked(true);
                 toolbar.setTitle(null);
                 toolbar.getMenu().clear();
@@ -456,7 +471,6 @@ public class MapFragment
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View view) {
-                                mEditLayerOverlay.showAllFeatures();
                                 setMode(MODE_NORMAL);
                             }
                         });
@@ -496,6 +510,11 @@ public class MapFragment
                 mEditLayerOverlay.setMode(EditLayerOverlay.MODE_HIGHLIGHT);
                 break;
             case MODE_INFO:
+                if (mSelectedLayer == null) {
+                    setMode(MODE_NORMAL);
+                    return;
+                }
+
                 mSelectedLayer.setLocked(true);
                 boolean tabletSize = getResources().getBoolean(R.bool.isTablet);
                 FragmentManager fragmentManager = mActivity.getSupportFragmentManager();
@@ -559,15 +578,18 @@ public class MapFragment
 
         String featureName = String.format(getString(R.string.feature_n), featureId);
         String labelField = mSelectedLayer.getPreferences().getString(SettingsConstantsUI.KEY_PREF_LAYER_LABEL, FIELD_ID);
-        if (!labelField.equals(FIELD_ID) && !noFeature && featureId != NOT_FOUND)
-            featureName = mSelectedLayer.getFeature(featureId).getFieldValueAsString(labelField);
+        if (!labelField.equals(FIELD_ID) && !noFeature && featureId != NOT_FOUND) {
+            Feature feature = mSelectedLayer.getFeature(featureId);
+            if (feature != null)
+                featureName = feature.getFieldValueAsString(labelField);
+        }
 
         featureName = noFeature ? getString(R.string.nothing_selected) :
                 featureId == Constants.NOT_FOUND ? getString(R.string.new_feature) : featureName;
         mActivity.setTitle(featureName);
         mActivity.setSubtitle(mSelectedLayer.getName());
 
-        boolean hasSelectedFeature = mEditLayerOverlay.getSelectedFeature() != null;
+        boolean hasSelectedFeature = mEditLayerOverlay.getSelectedFeature() != null && !noFeature;
         BottomToolbar toolbar = mActivity.getBottomToolbar();
         for (int i = 0; i < toolbar.getMenu().size(); i++) {
             MenuItem item = toolbar.getMenu().findItem(R.id.menu_feature_delete);
@@ -590,25 +612,37 @@ public class MapFragment
         mSelectedLayer.hideFeature(selectedFeatureId);
         mEditLayerOverlay.setSelectedFeature(null);
         defineMenuItems();
+        final VectorLayer layer = mSelectedLayer;
 
-        new UndoBarController.UndoBar(mActivity)
-                .message(mActivity.getString(com.nextgis.maplibui.R.string.delete_item_done))
-                .listener(new UndoBarController.AdvancedUndoListener() {
+        Snackbar snackbar = Snackbar.make(getActivity().findViewById(R.id.mainview), getActivity().getString(R.string.delete_item_done), Snackbar.LENGTH_LONG)
+                .setAction(R.string.undo, new OnClickListener() {
                     @Override
-                    public void onHide(@Nullable Parcelable parcelable) {
-                        mSelectedLayer.deleteAddChanges(selectedFeatureId);
-                    }
-
-                    @Override
-                    public void onClear(@NonNull Parcelable[] parcelables) { }
-
-                    @Override
-                    public void onUndo(@Nullable Parcelable parcelable) {
-                        mSelectedLayer.showFeature(selectedFeatureId);
+                    public void onClick(View v) {
+                        layer.showFeature(selectedFeatureId);
                         mEditLayerOverlay.setSelectedFeature(selectedFeatureId);
                         defineMenuItems();
                     }
-                }).show();
+                })
+                .setCallback(new Snackbar.Callback() {
+                    @Override
+                    public void onDismissed(Snackbar snackbar, int event) {
+                        super.onDismissed(snackbar, event);
+                        if (event == DISMISS_EVENT_MANUAL)
+                            return;
+                        if (event != DISMISS_EVENT_ACTION)
+                            layer.deleteAddChanges(selectedFeatureId);
+                    }
+
+                    @Override
+                    public void onShown(Snackbar snackbar) {
+                        super.onShown(snackbar);
+                    }
+                });
+
+        View view = snackbar.getView();
+        TextView textView = (TextView) view.findViewById(R.id.snackbar_text);
+        textView.setTextColor(ContextCompat.getColor(mActivity, com.nextgis.maplibui.R.color.color_white));
+        snackbar.show();
     }
 
 
@@ -694,7 +728,7 @@ public class MapFragment
         Bitmap ruler = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(ruler);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        paint.setColor(getResources().getColor(R.color.primary_dark));
+        paint.setColor(ContextCompat.getColor(getActivity(), R.color.primary_dark));
         paint.setStrokeWidth(4);
         paint.setStyle(Paint.Style.STROKE);
         canvas.drawLine(0, px, px, px, paint);
@@ -917,7 +951,7 @@ public class MapFragment
                 else
                     mEditLayerOverlay.newGeometryByWalk();
 
-                GeoGeometry geometry = GeoGeometryFactory.fromWKT(preferences.getString(ConstantsUI.KEY_GEOMETRY, ""));
+                GeoGeometry geometry = GeoGeometryFactory.fromWKT(preferences.getString(ConstantsUI.KEY_GEOMETRY, ""), GeoConstants.CRS_WEB_MERCATOR);
                 if (geometry != null)
                     mEditLayerOverlay.setGeometryFromWalkEdit(geometry);
 
@@ -948,10 +982,10 @@ public class MapFragment
         final SharedPreferences.Editor edit =
                 PreferenceManager.getDefaultSharedPreferences(mActivity).edit();
         if (null != mMap) {
-            edit.putFloat(KEY_PREF_ZOOM_LEVEL, mMap.getZoomLevel());
+            edit.putFloat(SettingsConstantsUI.KEY_PREF_ZOOM_LEVEL, mMap.getZoomLevel());
             GeoPoint point = mMap.getMapCenter();
-            edit.putLong(KEY_PREF_SCROLL_X, Double.doubleToRawLongBits(point.getX()));
-            edit.putLong(KEY_PREF_SCROLL_Y, Double.doubleToRawLongBits(point.getY()));
+            edit.putLong(SettingsConstantsUI.KEY_PREF_SCROLL_X, Double.doubleToRawLongBits(point.getX()));
+            edit.putLong(SettingsConstantsUI.KEY_PREF_SCROLL_Y, Double.doubleToRawLongBits(point.getY()));
 
             mMap.removeListener(this);
         }
@@ -991,7 +1025,7 @@ public class MapFragment
             mMap.getMap().setBackground(mApp.getMapBackground());
             float mMapZoom;
             try {
-                mMapZoom = prefs.getFloat(KEY_PREF_ZOOM_LEVEL, mMap.getMinZoom());
+                mMapZoom = prefs.getFloat(SettingsConstantsUI.KEY_PREF_ZOOM_LEVEL, mMap.getMinZoom());
             } catch (ClassCastException e) {
                 mMapZoom = mMap.getMinZoom();
             }
@@ -999,18 +1033,27 @@ public class MapFragment
             double mMapScrollX;
             double mMapScrollY;
             try {
-                mMapScrollX = Double.longBitsToDouble(prefs.getLong(KEY_PREF_SCROLL_X, 0));
-                mMapScrollY = Double.longBitsToDouble(prefs.getLong(KEY_PREF_SCROLL_Y, 0));
+                mMapScrollX = Double.longBitsToDouble(prefs.getLong(SettingsConstantsUI.KEY_PREF_SCROLL_X, 0));
+                mMapScrollY = Double.longBitsToDouble(prefs.getLong(SettingsConstantsUI.KEY_PREF_SCROLL_Y, 0));
             } catch (ClassCastException e) {
                 mMapScrollX = 0;
                 mMapScrollY = 0;
             }
             mMap.setZoomAndCenter(mMapZoom, new GeoPoint(mMapScrollX, mMapScrollY));
-
             mMap.addListener(this);
+            mMap.post(new Runnable() {
+                @Override
+                public void run() {
+                    refresh();
+                }
+            });
         }
 
-        mCoordinatesFormat = Integer.parseInt(prefs.getString(SettingsConstantsUI.KEY_PREF_COORD_FORMAT, Location.FORMAT_DEGREES + ""));
+        String coordinatesFormat = prefs.getString(SettingsConstantsUI.KEY_PREF_COORD_FORMAT, Location.FORMAT_DEGREES + "");
+        if (FileUtil.isIntegerParseInt(coordinatesFormat))
+            mCoordinatesFormat = Integer.parseInt(coordinatesFormat);
+        else
+            mCoordinatesFormat = Location.FORMAT_DEGREES;
         mCoordinatesFraction = prefs.getInt(SettingsConstantsUI.KEY_PREF_COORD_FRACTION, 6);
 
         if (null != mCurrentLocationOverlay) {
@@ -1058,6 +1101,8 @@ public class MapFragment
 
         mCurrentCenter = null;
     }
+
+
 
 
     protected void setMarginsToPanel() {
@@ -1184,7 +1229,6 @@ public class MapFragment
 
             mSelectedLayer = layer;
             mEditLayerOverlay.setSelectedLayer(layer);
-            mEditLayerOverlay.setSelectedFeature(new Feature());
             setMode(MODE_SELECT_ACTION);
 
             Toast.makeText(mActivity, String.format(getString(R.string.edit_layer), layer.getName()), Toast.LENGTH_SHORT).show();
@@ -1195,7 +1239,7 @@ public class MapFragment
             mChooseLayerDialog = new ChooseLayerDialog();
             mChooseLayerDialog.setLayerList(layers)
                     .setCode(EDIT_LAYER)
-                    .setTitle(getString(R.string.select_layer))
+                    .setTitle(getString(R.string.choose_layers))
                     .setTheme(mActivity.getThemeId())
                     .show(mActivity.getSupportFragmentManager(), "choose_layer");
         }
@@ -1238,7 +1282,7 @@ public class MapFragment
             mChooseLayerDialog = new ChooseLayerDialog();
             mChooseLayerDialog.setLayerList(layers)
                     .setCode(ADD_POINT_BY_TAP)
-                    .setTitle(getString(R.string.select_layer))
+                    .setTitle(getString(R.string.choose_layers))
                     .setTheme(mActivity.getThemeId())
                     .show(mActivity.getSupportFragmentManager(), "choose_layer");
         }
@@ -1259,6 +1303,8 @@ public class MapFragment
             //open form
             ILayer vectorLayer = layers.get(0);
             if (vectorLayer instanceof ILayerUI) {
+                mSelectedLayer = (VectorLayer) vectorLayer;
+                mEditLayerOverlay.setSelectedLayer(mSelectedLayer);
                 IVectorLayerUI vectorLayerUI = (IVectorLayerUI) vectorLayer;
                 vectorLayerUI.showEditForm(mActivity, Constants.NOT_FOUND, null);
 
@@ -1278,7 +1324,7 @@ public class MapFragment
             mChooseLayerDialog = new ChooseLayerDialog();
             mChooseLayerDialog.setLayerList(layers)
                     .setCode(ADD_CURRENT_LOC)
-                    .setTitle(getString(R.string.select_layer))
+                    .setTitle(getString(R.string.choose_layers))
                     .setTheme(mActivity.getThemeId())
                     .show(mActivity.getSupportFragmentManager(), "choose_layer");
         }
@@ -1326,7 +1372,7 @@ public class MapFragment
             mChooseLayerDialog = new ChooseLayerDialog();
             mChooseLayerDialog.setLayerList(layers)
                     .setCode(ADD_GEOMETRY_BY_WALK)
-                    .setTitle(getString(R.string.select_layer))
+                    .setTitle(getString(R.string.choose_layers))
                     .setTheme(mActivity.getThemeId())
                     .show(mActivity.getSupportFragmentManager(), "choose_layer");
         }
@@ -1340,6 +1386,9 @@ public class MapFragment
         VectorLayer vectorLayer = (VectorLayer) layer;
         if (layer == null)
             return; // TODO toast?
+
+        if (mSelectedLayer != null)
+            mSelectedLayer.setLocked(false);
 
         mSelectedLayer = vectorLayer;
         mEditLayerOverlay.setSelectedLayer(vectorLayer);
@@ -1404,14 +1453,18 @@ public class MapFragment
             }
         }
 
-
         if (intersects) {
             if (mSelectedLayer != null)
                 mSelectedLayer.setLocked(false);
 
             mSelectedLayer = vectorLayer;
             mEditLayerOverlay.setSelectedLayer(vectorLayer);
-            mEditLayerOverlay.setSelectedFeature(items.get(0));
+            for (int i = 0; i < items.size(); i++) {    // FIXME hack for bad RTree cache
+                long featureId = items.get(i);
+                GeoGeometry geometry = mSelectedLayer.getGeometryForId(featureId);
+                if (geometry != null)
+                    mEditLayerOverlay.setSelectedFeature(featureId);
+            }
             setMode(MODE_SELECT_ACTION);
         }
 
@@ -1599,21 +1652,21 @@ public class MapFragment
 
                 mStatusSource.setText(text);
                 mStatusSource.setCompoundDrawablesWithIntrinsicBounds(
-                        getResources().getDrawable(R.drawable.ic_location), null, null, null);
+                        ContextCompat.getDrawable(getActivity(), R.drawable.ic_location), null, null, null);
             } else {
                 mStatusSource.setText("");
                 mStatusSource.setCompoundDrawablesWithIntrinsicBounds(
-                        getResources().getDrawable(R.drawable.ic_signal_wifi), null, null, null);
+                        ContextCompat.getDrawable(getActivity(), R.drawable.ic_signal_wifi), null, null, null);
             }
 
             mStatusAccuracy.setText(
-                    String.format(
+                    String.format(Locale.getDefault(),
                             "%.1f %s", location.getAccuracy(), getString(R.string.unit_meter)));
             mStatusAltitude.setText(
-                    String.format(
+                    String.format(Locale.getDefault(),
                             "%.1f %s", location.getAltitude(), getString(R.string.unit_meter)));
             mStatusSpeed.setText(
-                    String.format(
+                    String.format(Locale.getDefault(),
                             "%.1f %s/%s", location.getSpeed() * 3600 / 1000,
                             getString(R.string.unit_kilometer), getString(R.string.unit_hour)));
             mStatusLatitude.setText(
@@ -1690,6 +1743,11 @@ public class MapFragment
     public void onFinishEditSession()
     {
         setMode(MODE_NORMAL);
+    }
+
+    @Override
+    public void onFinishEditByWalkSession() {
+
     }
 
 

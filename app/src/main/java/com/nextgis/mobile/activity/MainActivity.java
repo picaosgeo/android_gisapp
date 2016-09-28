@@ -44,10 +44,11 @@ import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
 import android.support.v4.app.FragmentManager;
+import android.support.v4.content.ContextCompat;
 import android.support.v4.widget.DrawerLayout;
-import android.support.v7.internal.widget.ThemeUtils;
 import android.support.v7.widget.Toolbar;
 import android.util.Log;
+import android.util.Pair;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.ProgressBar;
@@ -64,6 +65,7 @@ import com.nextgis.maplib.map.NGWVectorLayer;
 import com.nextgis.maplib.map.VectorLayer;
 import com.nextgis.maplib.util.Constants;
 import com.nextgis.maplib.util.FileUtil;
+import com.nextgis.maplib.util.NGWUtil;
 import com.nextgis.maplibui.activity.NGActivity;
 import com.nextgis.maplibui.api.IChooseLayerResult;
 import com.nextgis.maplibui.api.IVectorLayerUI;
@@ -71,6 +73,7 @@ import com.nextgis.maplibui.fragment.BottomToolbar;
 import com.nextgis.maplibui.fragment.LayerFillProgressDialogFragment;
 import com.nextgis.maplibui.service.TrackerService;
 import com.nextgis.maplibui.util.ConstantsUI;
+import com.nextgis.maplibui.util.ControlHelper;
 import com.nextgis.maplibui.util.SettingsConstantsUI;
 import com.nextgis.mobile.MainApplication;
 import com.nextgis.mobile.R;
@@ -122,15 +125,13 @@ public class MainActivity extends NGActivity
         mMessageReceiver = new MessageReceiver();
 
         mToolbar = (Toolbar) findViewById(R.id.main_toolbar);
-        mToolbar.getBackground().setAlpha(128);
         setSupportActionBar(mToolbar);
         if (null != getSupportActionBar()) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         }
 
         DrawerLayout drawerLayout = (DrawerLayout) findViewById(R.id.drawer_layout);
-        drawerLayout.setStatusBarBackgroundColor(ThemeUtils.getThemeAttrColor(
-                this, R.attr.colorPrimaryDark));
+        drawerLayout.setStatusBarBackgroundColor(ControlHelper.getColor(this, R.attr.colorPrimaryDark));
 
         FragmentManager fm = getSupportFragmentManager();
         mMapFragment = (MapFragment) fm.findFragmentById(R.id.map);
@@ -141,7 +142,7 @@ public class MainActivity extends NGActivity
         mLayersFragment = (LayersFragment) fm.findFragmentById(R.id.layers);
 
         if (mLayersFragment != null && null != mLayersFragment.getView()) {
-            mLayersFragment.getView().setBackgroundColor(getResources().getColor(R.color.color_grey_050));
+            mLayersFragment.getView().setBackgroundColor(ContextCompat.getColor(this, R.color.color_grey_050));
             // Set up the drawer.
             mLayersFragment.setUp(R.id.layers, drawerLayout, (MapDrawable) app.getMap());
         }
@@ -254,9 +255,13 @@ public class MainActivity extends NGActivity
 
                 int title = R.string.track_start, icon = R.drawable.ic_action_maps_directions_walk;
                 if (isTrackerServiceRunning(this)) {
-                    stopService(trackerService);
+                    trackerService.setAction(TrackerService.ACTION_STOP);
+                    startService(trackerService);
                 } else if (hasUnfinishedTracks(this)) {
-                    TrackerService.closeTracks(this, app);
+                    trackerService.setAction(TrackerService.ACTION_STOP);
+                    startService(trackerService);
+                    trackerService.setAction(null);
+                    startService(trackerService);
                 } else {
                     startService(trackerService);
                     title = R.string.track_stop;
@@ -333,7 +338,7 @@ public class MainActivity extends NGActivity
                         refreshItem.setActionView(R.layout.layout_refresh);
                         ProgressBar progress = (ProgressBar) refreshItem.getActionView().findViewById(R.id.refreshingProgress);
                         if (progress != null)
-                            progress.getIndeterminateDrawable().setColorFilter(getResources().getColor(R.color.color_grey_200), PorterDuff.Mode.SRC_IN);
+                            progress.getIndeterminateDrawable().setColorFilter(ContextCompat.getColor(this, R.color.color_grey_200), PorterDuff.Mode.SRC_IN);
                     }
                 } else
                     stopRefresh(refreshItem);
@@ -342,6 +347,9 @@ public class MainActivity extends NGActivity
     }
 
     protected void stopRefresh(final MenuItem refreshItem) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.HONEYCOMB)
+            return;
+
         Handler handler = new Handler(Looper.getMainLooper());
         final Runnable r = new Runnable() {
             @TargetApi(Build.VERSION_CODES.HONEYCOMB)
@@ -451,7 +459,8 @@ public class MainActivity extends NGActivity
             ILayer layer = map.getLayer(i);
             if (layer instanceof NGWVectorLayer) {
                 ngwVectorLayer = (NGWVectorLayer) layer;
-                ngwVectorLayer.sync(application.getAuthority(), new SyncResult());
+                Pair<Integer, Integer> ver = NGWUtil.getNgwVersion(this, ngwVectorLayer.getAccountName());
+                ngwVectorLayer.sync(application.getAuthority(), ver, new SyncResult());
             }
         }
     }
@@ -740,6 +749,7 @@ public class MainActivity extends NGActivity
     protected void onResume()
     {
         super.onResume();
+        mToolbar.getBackground().setAlpha(128);
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(ConstantsUI.MESSAGE_INTENT);
         registerReceiver(mMessageReceiver, intentFilter);

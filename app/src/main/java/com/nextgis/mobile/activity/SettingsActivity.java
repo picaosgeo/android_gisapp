@@ -30,8 +30,6 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
-import android.content.pm.ActivityInfo;
-import android.content.res.Configuration;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
@@ -452,7 +450,7 @@ public class SettingsActivity
             preference.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
                 @Override
                 public boolean onPreferenceClick(Preference preference) {
-                    AlertDialog.Builder confirm = new AlertDialog.Builder(activity, ControlHelper.getDialogTheme(activity, activity.getThemeId()));
+                    AlertDialog.Builder confirm = new AlertDialog.Builder(activity);
                     confirm.setTitle(R.string.reset_settings_title).setMessage(R.string.reset_settings_message)
                             .setNegativeButton(android.R.string.cancel, null)
                             .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
@@ -491,6 +489,7 @@ public class SettingsActivity
         editor.remove(SettingsConstants.KEY_PREF_TRACKS_SOURCE);
         editor.remove(SettingsConstants.KEY_PREF_TRACKS_MIN_TIME);
         editor.remove(SettingsConstants.KEY_PREF_TRACKS_MIN_DISTANCE);
+        editor.remove(SettingsConstants.KEY_PREF_TRACK_RESTORE);
         editor.remove(KEY_PREF_SHOW_MEASURING);
         editor.remove(KEY_PREF_SHOW_SCALE_RULER);
         editor.remove(SettingsConstantsUI.KEY_PREF_SHOW_GEO_DIALOG);
@@ -613,7 +612,7 @@ public class SettingsActivity
         protected void onPreExecute()
         {
             //not good solution but rare used so let it be
-            lockScreenOrientation();
+            ControlHelper.lockScreenOrientation(mActivity);
             mProgressDialog = ProgressDialog.show(
                     mActivity, mActivity.getString(R.string.moving),
                     mActivity.getString(R.string.warning_map_moving), true);
@@ -627,24 +626,7 @@ public class SettingsActivity
         protected void onPostExecute(Void aVoid)
         {
             mProgressDialog.dismiss();
-            unlockScreenOrientation();
-        }
-
-
-        protected void lockScreenOrientation()
-        {
-            int currentOrientation = mActivity.getResources().getConfiguration().orientation;
-            if (currentOrientation == Configuration.ORIENTATION_PORTRAIT) {
-                mActivity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-            } else {
-                mActivity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-            }
-        }
-
-
-        protected void unlockScreenOrientation()
-        {
-            mActivity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR);
+            ControlHelper.unlockScreenOrientation(mActivity);
         }
     }
 }

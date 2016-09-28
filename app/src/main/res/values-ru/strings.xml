@@ -31,7 +31,6 @@
     <string name="action_settings">Настройки</string>
     <string name="action_add">Новый слой</string>
     <string name="action_add_local">Открыть локальный</string>
-    <string name="action_add_ngw">Добавить из NGW</string>
     <string name="general">Общие</string>
     <string name="general_summary">Общие настройки</string>
     <string name="keep_screen_on">Не отключать экран</string>
@@ -43,13 +42,11 @@
     <string name="show_compass">Показывать мини компас</string>
     <string name="map">Карта</string>
     <string name="map_summary">Настройки карты</string>
-    <string name="ngw">NextGIS Web</string>
-    <string name="ngw_summary">Настройки NextGIS Web</string>
     <string name="app_description">Мобильная ГИС для визуализации и сбора геоданных в поле и отправки результатов на сервер. NextGIS Mobile также записывает треки и отправляет координаты местоположения на сервер.</string>
     <string name="credits_intro">Лицензии</string>
     <string name="credits">Некоторые иконки использованные в приложении с <a href="http://icons8.com/android-icons">Icons8.com</a> под лицензией <a
         href="http://creativecommons.org/licenses/by-nd/3.0/">CC BY-ND 3.0</a>, <a href="http://materialdesignicons.com/">materialdesignicons.com</a> и <a href="http://romannurik.github.io/AndroidAssetStudio/icons-launcher.html">romannurik.github.io</a> под лицензией <a href="http://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a></string>
-    <string name="copyright"><![CDATA[Copyright © <a href=\"http://nextgis.com\">NextGIS</a>, 2012–2015]]></string>
+    <string name="copyright"><![CDATA[Copyright © <a href=\"http://nextgis.com\">NextGIS</a>, 2012–2016]]></string>
     <string name="contacts"><a href="http://nextgis.ru/contact/">Связаться с нами</a></string>
     <string name="action_about">О программе</string>
     <string name="add_current_place">Добавить текущую точку</string>
@@ -66,8 +63,6 @@
     <string name="pref_location_accuracy_gps">GPS</string>
     <string name="pref_location_accuracy_cell">Другие сети</string>
     <string name="location">Местоположение</string>
-    <string name="location_summary">Настройки местоположения и ввода геометрий обходом</string>
-    <string name="tracks_summary">Настройки треков</string>
     <string name="track_start">Начать запись трека</string>
     <string name="track_stop">Завершить запись трека</string>
     <string name="tracks_reload">Перезапустите запись для применения изменений</string>
@@ -131,4 +126,5 @@
     <string name="permissions">Разрешения</string>
     <string name="requested_permissions">Приложению требуются некоторые разрешения для корректной работы: запись на устройство (для хранения данных), доступ
         к местоположению и получение контактов (для создания и управления веб аккаунтами).</string>
+    <string name="track_restore">Продолжать трек после перезагрузки</string>
 </resources>
